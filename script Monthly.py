@@ -1,5 +1,8 @@
 import pandas as pd
-
+from openpyxl import load_workbook
+from openpyxl.styles import PatternFill
+from openpyxl.utils import get_column_letter
+import openpyxl
 # Load the database (pallet data) file
 pallet_data = pd.read_excel('Pallet data.xlsx', usecols=[1, 9, 11], header=None, names=['SKU', 'PalletQty', 'PalletWeight'])
 
@@ -139,14 +142,82 @@ def process_sheet(sheet):
         # Add the combined table to the output dataframe
         output_df = pd.concat([output_df, combined_table], axis=1)
 
-    return output_df
+    return output_df, table_positions, num_columns
 
 # Process each sheet in the Excel file
 output_sheets = {}
+table_info = {}
 for sheet in xls.sheet_names:
-    output_sheets[sheet] = process_sheet(sheet)
+    output_sheets[sheet], table_positions, num_columns = process_sheet(sheet)
+    table_info[sheet] = (table_positions, num_columns)
 
-# Save the result to a new Excel file
+# Save the result to a new Excel file and apply formatting
 with pd.ExcelWriter('output.xlsx', engine='openpyxl') as writer:
     for sheet_name, df in output_sheets.items():
         df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
+
+    # Load the original workbook to copy styles
+    original_wb = load_workbook(input_file)
+    
+    # Get the workbook from the ExcelWriter object
+    wb = writer.book
+
+    for sheet_name, df in output_sheets.items():
+        ws = wb[sheet_name]
+        original_ws = original_wb[sheet_name]
+        table_positions, num_columns = table_info[sheet_name]
+
+        # Copy merged cells
+        for merged_cell_range in original_ws.merged_cells.ranges:
+            ws.merge_cells(str(merged_cell_range))
+
+        # Copy formatting from original sheet
+        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+            for cell in row:
+                original_cell = original_ws.cell(row=cell.row, column=cell.column)
+                cell.font = original_cell.font.copy()
+                cell.border = original_cell.border.copy()
+                cell.fill = original_cell.fill.copy()
+                cell.number_format = original_cell.number_format
+                cell.alignment = original_cell.alignment.copy()
+
+        # Apply yellow background to output columns
+        yellow_fill = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+        for table_start in table_positions:
+            # Find the max_orders for this table
+            max_orders = 0
+            for col in range(table_start + num_columns + 1, ws.max_column + 1, 2):
+                header = ws.cell(row=2, column=col).value
+                if header and header.startswith('Order '):
+                    max_orders = max(max_orders, int(header.split()[1]))
+                else:
+                    break
+
+            start_col = table_start + num_columns + 1
+            end_col = start_col + (max_orders * 2)  # 2 columns per order
+            for col in range(start_col, end_col):
+                for row in range(1, ws.max_row + 1):
+                    cell = ws.cell(row=row, column=col)
+                    cell.fill = yellow_fill
+                    # Preserve borders
+                    if cell.border:
+                        cell.border = cell.border.copy()
+
+        # Auto-fit column widths
+        for col in ws.columns:
+            max_length = 0
+            column = None
+            for cell in col:
+                if isinstance(cell, openpyxl.cell.cell.Cell):  # Check if it's a regular cell
+                    if column is None:
+                        column = cell.column_letter
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+            if column:  # Only adjust if we found a valid column
+                adjusted_width = (max_length + 2)
+                ws.column_dimensions[column].width = adjusted_width
+
+    wb.save('output.xlsx')
