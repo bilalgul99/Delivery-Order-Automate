@@ -1,8 +1,8 @@
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
-from openpyxl.utils import get_column_letter
 import openpyxl
+
 # Load the database (pallet data) file
 pallet_data = pd.read_excel('Pallet data.xlsx', usecols=[1, 9, 11], header=None, names=['SKU', 'PalletQty', 'PalletWeight'])
 
@@ -171,37 +171,45 @@ with pd.ExcelWriter('output.xlsx', engine='openpyxl') as writer:
         for merged_cell_range in original_ws.merged_cells.ranges:
             ws.merge_cells(str(merged_cell_range))
 
-        # Copy formatting from original sheet
-        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
-            for cell in row:
-                original_cell = original_ws.cell(row=cell.row, column=cell.column)
-                cell.font = original_cell.font.copy()
-                cell.border = original_cell.border.copy()
-                cell.fill = original_cell.fill.copy()
-                cell.number_format = original_cell.number_format
-                cell.alignment = original_cell.alignment.copy()
+        # Process each table
+        output_column_offset = 0
+        for table_index, start_col in enumerate(table_positions):
+            end_col = start_col + num_columns
 
-        # Apply yellow background to output columns
-        yellow_fill = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
-        for table_start in table_positions:
-            # Find the max_orders for this table
+            # Calculate the new start column in the output sheet
+            # Remove the addition of start_col here
+            new_start_col = output_column_offset + 1
+
+            # Copy formatting for the current table
+            for row in range(1, original_ws.max_row + 1):
+                for col_offset in range(num_columns):
+                    source_cell = original_ws.cell(row=row, column=start_col + col_offset + 1)
+                    target_cell = ws.cell(row=row, column=new_start_col + col_offset)
+                    target_cell.font = source_cell.font.copy()
+                    target_cell.border = source_cell.border.copy()
+                    target_cell.fill = source_cell.fill.copy()
+                    target_cell.number_format = source_cell.number_format
+                    target_cell.alignment = source_cell.alignment.copy()
+
+            # Apply yellow background to output columns
+            yellow_fill = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
             max_orders = 0
-            for col in range(table_start + num_columns + 1, ws.max_column + 1, 2):
+            for col in range(new_start_col + num_columns, ws.max_column + 1, 2):
                 header = ws.cell(row=2, column=col).value
                 if header and header.startswith('Order '):
                     max_orders = max(max_orders, int(header.split()[1]))
                 else:
                     break
 
-            start_col = table_start + num_columns + 1
-            end_col = start_col + (max_orders * 2)  # 2 columns per order
-            for col in range(start_col, end_col):
+            output_start_col = new_start_col + num_columns
+            output_end_col = output_start_col + (max_orders * 2)  # 2 columns per order
+            for col in range(output_start_col, output_end_col):
                 for row in range(1, ws.max_row + 1):
                     cell = ws.cell(row=row, column=col)
                     cell.fill = yellow_fill
-                    # Preserve borders
-                    if cell.border:
-                        cell.border = cell.border.copy()
+
+            # Update the offset for the next table
+            output_column_offset += num_columns + (max_orders * 2)
 
         # Auto-fit column widths
         for col in ws.columns:
