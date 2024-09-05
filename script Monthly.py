@@ -63,9 +63,6 @@ def process_sheet(sheet):
             sku = row.iloc[0]
             qty = row.iloc[-1]
 
-            if sku == 1715277:
-                print(qty)
-
             # Find the pallet quantity and weight
             pallet_info = pallet_data[pallet_data['SKU'] == sku]
             if not pallet_info.empty:
@@ -92,7 +89,7 @@ def process_sheet(sheet):
                         # Add as many pallets as possible to the current order
                         current_order['weight'] += pallets_to_add * pallet_weight
                         current_order['pallets'] += pallets_to_add
-                        current_order['data'].append((sku, pallets_to_add * pallet_qty, pallets_to_add, order_index))
+                        current_order['data'].append((sku, pallets_to_add * pallet_qty, pallets_to_add, order_index, i))
                     
                     # Finalize the current order
                     orders.append(current_order)
@@ -103,13 +100,13 @@ def process_sheet(sheet):
                     current_order = {
                         'weight': remaining_pallets * pallet_weight,
                         'pallets': remaining_pallets,
-                        'data': [(sku, remaining_pallets * pallet_qty, remaining_pallets, order_index)] if remaining_pallets > 0 else []
+                        'data': [(sku, remaining_pallets * pallet_qty, remaining_pallets, order_index, i)] if remaining_pallets > 0 else []
                     }
                 else:
                     # Update the current order
                     current_order['weight'] += weight
                     current_order['pallets'] += pallets
-                    current_order['data'].append((sku, ship_qty, pallets, order_index))
+                    current_order['data'].append((sku, ship_qty, pallets, order_index, i))
 
         # Append the last order if it has data
         if current_order['data']:
@@ -120,18 +117,21 @@ def process_sheet(sheet):
         output_columns = pd.DataFrame(index=table_data.index)
         
         for i in range(1, max_orders + 1):
-            output_columns[f'Order {i}'] = ''
+            output_columns[f'Order {i} Qty'] = ''
+            output_columns[f'Order {i} Pallets'] = ''
 
         # Fill the output columns
         for order in orders:
             for item in order['data']:
-                sku, ship_qty, pallets, index = item
-                output_columns.loc[table_data.iloc[:, 0] == sku, f'Order {index}'] = ship_qty
+                sku, ship_qty, pallets, index, row_num = item
+                output_columns.loc[row_num, f'Order {index} Qty'] = ship_qty
+                output_columns.loc[row_num, f'Order {index} Pallets'] = pallets
 
         # Add order headers to the 'SKU' row
         sku_row_index = table_data.index[table_data.iloc[:, 0] == 'SKU'][0]
         for i in range(1, max_orders + 1):
-            output_columns.loc[sku_row_index, f'Order {i}'] = f'Order {i}'
+            output_columns.loc[sku_row_index, f'Order {i} Qty'] = f'Order {i}'
+            output_columns.loc[sku_row_index, f'Order {i} Pallets'] = 'Pallets'
 
         # Combine the original table with its output
         combined_table = pd.concat([table_data, output_columns], axis=1)
